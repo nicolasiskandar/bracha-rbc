@@ -1,0 +1,13 @@
+[package]
+name = "brb-network"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+brb-core = { path = "../brb-core" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

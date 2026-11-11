@@ -1,0 +1,18 @@
+# Rust build output
+target/
+
+# Coq build artifacts
+coq/*.vo
+coq/*.vos
+coq/*.vok
+coq/*.glob
+coq/*.aux
+coq/.*.aux
+coq/.lia.cache
+coq/.Makefile.d
+coq/Makefile
+coq/Makefile.conf
+
+# Experiment results
+crates/brb-experiments/results/*.json
+results/

@@ -1,0 +1,26 @@
+version: '3.8'
+
+# Demo: runs 4-node brb-experiments containers simulating honest broadcast.
+# Note: brb-network TCP nodes are not production-ready; this is for scenario demos.
+
+services:
+  scenario-a:
+    build: .
+    command: run --scenario a --seed 42 --reps 10 --output /results
+    volumes:
+      - ./results:/results
+    profiles: [demo]
+
+  scenario-b:
+    build: .
+    command: run --scenario b --seed 42 --reps 10 --output /results
+    volumes:
+      - ./results:/results
+    profiles: [demo]
+
+  bench:
+    build: .
+    command: bench --sizes 4,7,10,13 --rounds 20 --output /results
+    volumes:
+      - ./results:/results
+    profiles: [bench]

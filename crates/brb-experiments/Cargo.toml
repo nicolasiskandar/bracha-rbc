@@ -1,0 +1,21 @@
+[package]
+name = "brb-experiments"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "brb-experiments"
+path = "src/main.rs"
+
+[dependencies]
+brb-core = { path = "../brb-core" }
+brb-simulator = { path = "../brb-simulator" }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
