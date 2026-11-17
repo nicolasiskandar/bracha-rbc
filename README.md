@@ -1,6 +1,6 @@
 # Bracha RBC: Formally Verified Byzantine Reliable Broadcast
 
-A complete implementation of Bracha's 1987 asynchronous Byzantine Reliable Broadcast (BRB) protocol in Rust, with a formal Coq specification and correctness proofs.
+A complete implementation of Bracha's 1987 asynchronous Byzantine Reliable Broadcast (BRB) protocol in Rust, with a formal Rocq specification and correctness proofs.
 
 ## Overview
 
@@ -8,7 +8,7 @@ This project implements and verifies a fundamental primitive in fault-tolerant d
 
 The project has two independent but related artifacts:
 - **Rust workspace**: a modular, adversarially-tested implementation
-- **Coq proof library**: machine-checked safety proofs plus explicitly axiomatized liveness
+- **Rocq proof library**: machine-checked safety proofs plus explicitly axiomatized liveness
 
 ## Directory Structure
 
@@ -34,7 +34,7 @@ bracha-rbc/
 │   │   └── tests/scenarios_test.rs
 │   ├── brb-network/               # Tokio TCP networking layer
 │   └── brb-experiments/           # CLI for scenarios and benchmarks
-├── coq/                           # Coq formal verification
+├── coq/                           # Rocq formal verification
 │   ├── Model.v                    # System model
 │   ├── Messages.v                 # Message types
 │   ├── State.v                    # Process state + predicates
@@ -50,7 +50,7 @@ bracha-rbc/
 └── docs/
     ├── specification.md           # Protocol rules and pseudocode
     ├── system_model.md            # Fault model and network assumptions
-    ├── proof_overview.md          # Coq proof walkthrough
+    ├── proof_overview.md          # Rocq proof walkthrough
     └── evaluation.md              # Experimental results template
 ```
 
@@ -96,7 +96,7 @@ cargo run -p brb-experiments -- bench --sizes 4,7,10,13 --rounds 20
 
 Traces are written as JSON to the `results/` directory.
 
-### Compile Coq Proofs
+### Compile Rocq Proofs
 
 ```bash
 cd coq
@@ -149,7 +149,7 @@ no `Axiom`, and no unproved witness hypotheses in the safety path:
    reachable by `Transitions.reachable` supplies the Safety witnesses, giving
    `no_conflicting_ready_reachable` and `agreement_reachable`.
 
-Fully proved in Coq:
+Fully proved in Rocq:
 
 - Echo Integrity: a correct process echoes at most one value per instance
 - READY Integrity: a correct process broadcasts READY for at most one value

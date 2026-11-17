@@ -1,6 +1,6 @@
-# Coq Proof Overview
+# Rocq Proof Overview
 
-This document explains the structure of the Coq formal verification in `coq/`.
+This document explains the structure of the Rocq formal verification in `coq/`.
 
 ## Goal
 
@@ -204,13 +204,13 @@ admitted liveness results.
 
 ## Relationship to Rust Implementation
 
-The machine-checked end-to-end safety results stop at the Coq operational
+The machine-checked end-to-end safety results stop at the Rocq operational
 model. The Rust implementation is connected to that model by:
 
 1. unit tests in `brb-core` checking each protocol rule in isolation;
 2. adversarial simulation in `brb-simulator` with many seeds per scenario; and
-3. structural correspondence between the Rust `ProcessState` and the Coq
+3. structural correspondence between the Rust `ProcessState` and the Rocq
    `ProcessState` record.
 
-A machine-checked refinement from Rust to the Coq transition system is not
+A machine-checked refinement from Rust to the Rocq transition system is not
 claimed.
