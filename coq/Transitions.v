@@ -16,6 +16,7 @@ Definition ProcessId := nat.
 Definition Value := nat.
 
 Require Import State.
+Require Import Messages.
 
 (** Protocol events. *)
 Inductive Event : Type :=
@@ -41,7 +42,19 @@ Section Transitions.
 
 Variable n f : nat.
 Variable broadcaster : ProcessId.
-Variable faulty : ProcessId -> Prop.
+
+(** All participants live in a finite universe of n processes. *)
+Variable universe : list ProcessId.
+Hypothesis universe_NoDup : NoDup universe.
+Hypothesis universe_size : length universe = n.
+
+(** The faulty set is concrete so it can be counted. *)
+Variable faulty_list : list ProcessId.
+Hypothesis faulty_NoDup : NoDup faulty_list.
+Hypothesis faulty_bound : length faulty_list <= f.
+Hypothesis faulty_in_universe : forall p, In p faulty_list -> In p universe.
+
+Definition faulty (p : ProcessId) : Prop := In p faulty_list.
 Definition correct (p : ProcessId) : Prop := ~ faulty p.
 Definition q := n - f.
 
@@ -51,6 +64,7 @@ Inductive step : GlobalState -> Event -> GlobalState -> Prop :=
   (** Rule 1: Receive INIT from broadcaster → send ECHO. *)
   | step_recv_init :
       forall gs receiver v inst,
+        In receiver universe ->
         correct receiver ->
         echo_sent (local_state gs receiver) = None ->
         step gs
@@ -67,6 +81,9 @@ Inductive step : GlobalState -> Event -> GlobalState -> Prop :=
   (** Receive ECHO: record sender. *)
   | step_recv_echo :
       forall gs receiver sender v inst,
+        In receiver universe ->
+        In sender universe ->
+        (correct sender -> EchoSent gs sender v) ->
         correct receiver ->
         step gs
              (Ev_recv_echo receiver sender v inst)
@@ -82,6 +99,9 @@ Inductive step : GlobalState -> Event -> GlobalState -> Prop :=
   (** Receive READY: record sender. *)
   | step_recv_ready :
       forall gs receiver sender v inst,
+        In receiver universe ->
+        In sender universe ->
+        (correct sender -> ReadySent gs sender v) ->
         correct receiver ->
         step gs
              (Ev_recv_ready receiver sender v inst)
@@ -97,6 +117,7 @@ Inductive step : GlobalState -> Event -> GlobalState -> Prop :=
   (** Rule 2a: n-f ECHOs received → send READY. *)
   | step_send_ready_echo :
       forall gs p v inst,
+        In p universe ->
         correct p ->
         ready_sent (local_state gs p) = None ->
         echo_count (local_state gs p) v >= q ->
@@ -114,6 +135,7 @@ Inductive step : GlobalState -> Event -> GlobalState -> Prop :=
   (** Rule 2b: f+1 READYs received → amplify READY. *)
   | step_send_ready_amplify :
       forall gs p v inst,
+        In p universe ->
         correct p ->
         ready_sent (local_state gs p) = None ->
         ready_count (local_state gs p) v >= f + 1 ->
@@ -131,6 +153,7 @@ Inductive step : GlobalState -> Event -> GlobalState -> Prop :=
   (** Rule 3: n-f READYs received → deliver. *)
   | step_deliver :
       forall gs p v inst,
+        In p universe ->
         correct p ->
         delivered (local_state gs p) = None ->
         ready_count (local_state gs p) v >= q ->
@@ -146,6 +169,7 @@ Inductive step : GlobalState -> Event -> GlobalState -> Prop :=
   (** Byzantine: inject arbitrary message under own identity. *)
   | step_byzantine :
       forall gs p m,
+        In p universe ->
         faulty p ->
         msg_sender m = p ->
         step gs (Ev_byzantine p m) (mkGS (local_state gs) (m :: history gs)).

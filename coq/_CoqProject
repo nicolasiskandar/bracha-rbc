@@ -1,6 +1,11 @@
 -R . BrachaRBC
+Model.v
+Messages.v
 State.v
 Quorums.v
+Transitions.v
 Safety.v
+Exec.v
+Operational.v
 Liveness.v
 Main.v

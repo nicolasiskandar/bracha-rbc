@@ -7,6 +7,7 @@
 Require Import Coq.Arith.Arith.
 Require Import Coq.Lists.List.
 Require Import Coq.Bool.Bool.
+Require Import Messages.
 Import ListNotations.
 
 Definition ProcessId := nat.
@@ -39,10 +40,11 @@ Definition init_state : ProcessState := {|
   ready_senders := fun _ => nil
 |}.
 
-(** Global state: one ProcessState per process.
-    Message history is tracked in Transitions.v which imports Messages.v. *)
+(** Global state: one ProcessState per process, plus the message history
+    used by the Byzantine-injection rule in Transitions.v. *)
 Record GlobalState : Type := mkGS {
-  local_state : ProcessId -> ProcessState
+  local_state : ProcessId -> ProcessState;
+  history : list Message
 }.
 
 (** Predicates on global state. *)

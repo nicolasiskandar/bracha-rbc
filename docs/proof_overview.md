@@ -4,40 +4,39 @@ This document explains the structure of the Coq formal verification in `coq/`.
 
 ## Goal
 
-We formally establish that the abstract Bracha BRB protocol satisfies its safety properties. The Coq proofs provide machine-checked mathematical guarantees that are independent of the Rust implementation.
+We machine-check Bracha BRB safety in three layers:
+
+1. a snapshot core with explicit quorum-witness hypotheses,
+2. a well-formed abstract READY/DELIVER trace model, and
+3. a small-step operational model whose reachable states instantiate the
+   snapshot witnesses.
+
+No `Admitted`, `Axiom`, or unproved witness hypothesis appears in the safety
+path. Liveness remains separate: it uses explicit fairness axioms and admitted
+proofs.
 
 ## Proof Dependency Graph
 
 ```
-Model.v → Messages.v → State.v → Transitions.v
-                           │
-                           ├──→ Quorums.v  (fully proved)
-                           │
-                           └──→ Safety.v   (integrity: proved; agreement: admitted)
-                                   │
-                                   └──→ Liveness.v (axiomatized)
-                                               │
-                                               └──→ Main.v
+Model.v  (early arithmetic precursor)
+Messages.v → State.v
+              ├──→ Quorums.v      (fully proved)
+              ├──→ Safety.v       (integrity + witness core, fully proved)
+              │        └──→ Exec.v (well-formed traces, fully proved)
+              └──→ Transitions.v  (operational model)
+                       └──→ Operational.v
+                              (uses Transitions + Safety, fully proved)
+
+Liveness.v (axioms + admitted liveness) ──→ Main.v
 ```
 
 ## File-by-File Walkthrough
 
-### `Model.v`: System Model
+### `Model.v`: Early System Model
 
-Defines the basic types and hypotheses:
-
-```coq
-Variable n f : nat.
-Hypothesis byzantine_bound : n > 3 * f.
-
-Definition q := n - f.
-Definition correct (p : ProcessId) := ~ faulty p.
-```
-
-Key lemmas (all proved from `lia`):
-- `q_gt_f`: q > f (quorum exceeds fault bound)
-- `n_minus_2f_gt_f`: n − 2f > f (intersection exceeds fault bound)
-- `two_quorums_overlap`: 2q > n (two quorums must share elements)
+Contains the original arithmetic formulation (`q_gt_f`,
+`n_minus_2f_gt_f`, `two_quorums_overlap`) under an abstract faulty predicate.
+The main development uses the concrete, list-based statements in `Quorums.v`.
 
 ### `State.v`: Process State
 
@@ -53,134 +52,165 @@ Record ProcessState := mkPS {
 }.
 ```
 
-Using `option Value` (not `bool`) means the value committed to is recorded: which makes integrity proofs trivial: if `echo_sent = Some v` and `echo_sent = Some w`, then `v = w` by injectivity of `Some`.
+Using `option Value` rather than `bool` records the committed value, which
+makes integrity proofs immediate: two `Some` values must be equal.
 
-### `Transitions.v`: Step Relation
+`GlobalState` carries the local-state function plus a message `history`.
 
-Defines `step gs ev gs'`: a small-step transition from global state `gs` to `gs'` via event `ev`. Correct processes must follow the protocol rules; Byzantine processes may inject any message:
+### `Transitions.v`: Small-Step Operational Model
+
+Defines concrete protocol events and an inductive transition relation with a
+finite `universe`, an explicit duplicate-free `faulty_list`, and guards that
+check receiver/sender membership and correctness:
 
 ```coq
 Inductive step : GlobalState -> Event -> GlobalState -> Prop :=
-  | step_recv_init : ...      (* Rule 1: echo *)
-  | step_recv_echo : ...      (* accumulate echoes *)
-  | step_recv_ready : ...     (* accumulate READYs *)
-  | step_send_ready_echo : ...    (* Rule 2a: n-f ECHOs → READY *)
-  | step_send_ready_amplify : ... (* Rule 2b: f+1 READYs → READY *)
-  | step_deliver : ...        (* Rule 3: n-f READYs → deliver *)
-  | step_byzantine : ...      (* arbitrary action *)
+  | step_recv_init        (* record ECHO and add the sender *)
+  | step_recv_echo        (* record ECHO and add the sender *)
+  | step_recv_ready       (* record READY and add the sender *)
+  | step_send_ready_echo  (* n-f ECHOs -> READY *)
+  | step_send_ready_amplify (* f+1 READYs -> READY *)
+  | step_deliver          (* n-f READYs -> DELIVER *)
+  | step_byzantine        (* inject a message under a faulty identity *).
 ```
 
-Reachable states are defined as the reflexive-transitive closure of `step`.
+`reachable` is the reflexive-transitive closure of `step` from `init_gs`.
+Byzantine processes can inject arbitrary messages under their own identity,
+but they do not have to send any message to justify a correct process's
+quorum.
 
 ### `Quorums.v`: Quorum Intersection (Fully Proved)
 
-The mathematical core of the safety argument.
+The mathematical core of the safety argument. Two quorums of size at least
+`n - f` over a universe of size `n` intersect in at least `n - 2f` processes.
+Since `n > 3f`, this is strictly more than `f`, so a concrete intersection
+must contain a process outside `faulty_list`.
 
-**Key lemma: `quorum_intersection_arithmetic`**
+Key results include `quorum_size_gt_f`, `quorum_intersection_arithmetic`,
+`intersection_exceeds_f`, `in_list_inter`, and
+`quorum_intersection_has_correct`.
 
-For any two quorums Q1, Q2 (each of size ≥ n−f) over a universe of n processes:
+### `Safety.v`: Witness-Based Safety Core (Fully Proved)
 
-```
-|Q1| + |Q2| ≤ n + |Q1 ∩ Q2|    (union ≤ universe)
-|Q1 ∩ Q2| ≥ |Q1| + |Q2| − n
-           ≥ (n−f) + (n−f) − n
-           = n − 2f
-```
+Integrity theorems are proved directly from `option` injectivity:
 
-**Key consequence: `intersection_exceeds_f`**
+- `echo_integrity`
+- `ready_integrity`
+- `delivery_integrity`
 
-Since n > 3f: n − 2f > f. The intersection is strictly larger than the fault bound, so it cannot consist entirely of Byzantine processes. At least one correct process is in every two-quorum intersection.
+Inside `Section SafetyWithWitnesses`, two explicit hypotheses connect a
+snapshot `GlobalState` to protocol justifications:
 
-**List intersection membership: `in_list_inter`** (proved by induction)
+- `echo_justified`: every correct READY sender has a duplicate-free
+  `n - f` quorum drawn from the universe; only *correct* members are required
+  to have echoed the value.
+- `delivery_has_ready_quorum`: every correct Delivered fact has an existential
+  duplicate-free `n - f` quorum; only *correct* members are required to have
+  sent READY for the delivered value.
 
-```coq
-Lemma in_list_inter : forall l1 l2 x,
-  In x (list_inter l1 l2) -> In x l1 /\ In x l2.
-```
+Then:
 
-### `Safety.v`: Safety Theorems
+- `Safety.no_conflicting_ready` finds a correct process in the intersection of
+  the two echo quorums and applies `echo_integrity`.
+- `Safety.agreement` finds a correct READY sender in each delivery witness and
+  reduces to `no_conflicting_ready`.
 
-**Theorems 1, 2, 6: Integrity (fully proved)**
+There are no admitted proof obligations in this file.
 
-Echo/READY/delivery integrity follows immediately from `option` monotonicity:
+### `Exec.v`: Abstract Trace Layer (Fully Proved)
 
-```coq
-Theorem echo_integrity :
-  forall gs p v w, EchoSent gs p v -> EchoSent gs p w -> v = w.
-Proof.
-  (* Both hypotheses say echo_sent = Some v and Some w.
-     Rewrite one into the other; apply injectivity of Some. *)
-  intros. unfold EchoSent in *. rewrite H in H0.
-  apply option_some_inj. exact H0.
-Qed.
-```
+`Exec.v` defines `ExecEv` (`ERdy`, `EDel`) and `wf_trace`. Each event records
+its local justification:
 
-The proof is 3 lines and requires no induction: the `Option<Value>` state design makes it trivial.
+- a READY event is justified by an echo quorum or by `f + 1` earlier READY
+  events for the same value;
+- a DELIVER event is justified by a READY quorum.
 
-**Lemma: `no_conflicting_ready` (admitted with proof sketch)**
+The following are fully proved:
 
-This is the deepest result. The proof requires induction over the execution trace and the quorum intersection argument:
+- `echo_quorum_invariant`: every correct READY event in a well-formed trace has
+  an echo quorum. Amplification is handled by selecting a correct sender from
+  an `f + 1` READY set, since at most `f` senders are faulty.
+- `ready_quorum_invariant`: every correct DELIVER event has a READY quorum.
+- `no_conflicting_ready_top`
+- `agreement_top`
 
-1. Consider the first correct READY event in the execution.
-2. It must be triggered by n−f ECHOs (Rule 2a), forming quorum Q1.
-   - If triggered by f+1 READYs (Rule 2b), at least one of those must be correct (since f Byzantine can't supply f+1): contradicting "first".
-3. If a second correct READY for a different value w exists:
-   - If triggered by n−f ECHOs → quorum Q2.
-     - By quorum intersection, ∃ correct r ∈ Q1 ∩ Q2.
-     - r echoed both v and w → contradicts `echo_integrity`.
-   - If triggered by f+1 READYs → at least 1 correct sent READY earlier → contradicts "first".
+This layer is independent of how the snapshot state evolves.
 
-**Theorem 3: Agreement (admitted)**
+### `Operational.v`: Reachable-State Bridge (Fully Proved)
 
-Follows from `no_conflicting_ready` plus the observation that delivery quorums must contain correct READY senders.
+`Operational.v` supplies the Safety witnesses for every state reachable by
+`Transitions.step`.
 
-### `Liveness.v`: Liveness Under Fairness
+The bridge proves that sender lists are:
 
-Liveness cannot be proved from safety axioms alone. It requires assumptions about execution fairness:
+- stable under updates that do not change the relevant field,
+- valid: every correct listed ECHO/READY sender actually sent that message,
+- duplicate-free, and
+- drawn from the finite universe.
 
-```coq
-Axiom fair_delivery :
-  forall p q t, correct p -> correct q ->
-  (* messages from p to q are eventually received *)
+It then proves:
 
-Axiom fair_scheduling :
-  forall p t, correct p ->
-  (* p eventually processes all pending messages *)
-```
+- `ready_has_echo_quorum_reachable`: every correct READY sender has an echo
+  quorum. A newly sent READY uses its `n - f` ECHO witnesses; amplification
+  selects a correct earlier READY sender from the `f + 1` set and reuses that
+  sender's echo quorum.
+- `delivery_has_ready_quorum_reachable`: every Delivered fact has a READY
+  quorum; a new delivery uses the `n - f` READY senders counted by the
+  transition guard.
+- `no_conflicting_ready_reachable`
+- `agreement_reachable`
 
-These axioms are explicitly stated (not hidden) so the dependency is clear.
+The final two theorems instantiate `Safety.no_conflicting_ready` and
+`Safety.agreement`, so they are machine-checked end-to-end safety results over
+`Transitions.reachable`, not merely proof sketches.
 
-Under these axioms:
+### `Liveness.v`: Liveness Under Fairness (Admitted)
 
-- **Validity**: correct broadcaster → all correct eventually deliver
-- **Totality**: one correct delivers → all correct eventually deliver
+Liveness cannot be proved from a safety invariant alone; it needs assumptions
+about fair delivery and fair scheduling. These are declared explicitly as
+axioms with placeholder statements (`fair_delivery`, `fair_scheduling`) so the
+dependency is visible.
 
-Both are admitted because they require temporal logic reasoning over infinite traces that is beyond the scope of this initial formalization.
+Under these axioms, `validity` and `totality` are stated with proof sketches
+but remain `Admitted`. Neither theorem is imported into the safety path.
+
+### `Main.v`: Status Summary
+
+Imports the modules and records the proved/admitted status of each top-level
+result. It states the operational safety theorems and separates them from the
+admitted liveness results.
 
 ## What Is Proved vs. Admitted
 
-| Theorem | Status | Why |
-|---------|--------|-----|
-| `echo_integrity` | ✅ Proved | Option monotonicity; 3-line proof |
-| `ready_integrity` | ✅ Proved | Same |
-| `delivery_integrity` | ✅ Proved | Same |
-| `quorum_size_gt_f` | ✅ Proved | `lia` from `n > 3f` |
-| `quorum_intersection_arithmetic` | ✅ Proved | `lia` |
-| `intersection_exceeds_f` | ✅ Proved | `lia` |
-| `in_list_inter` | ✅ Proved | List induction |
-| `no_conflicting_ready` | 🔶 Admitted | Needs execution-trace induction infra |
-| `agreement` | 🔶 Admitted | Needs `no_conflicting_ready` |
-| `validity` | 🔶 Admitted | Needs fair_delivery + trace induction |
-| `totality` | 🔶 Admitted | Same |
-
-The admitted theorems have detailed proof sketches in the source. The key mathematical content (quorum arithmetic) is fully proved.
+| Theorem | Status | Basis |
+|---------|--------|-------|
+| `echo_integrity` | Proved | `option` injectivity |
+| `ready_integrity` | Proved | `option` injectivity |
+| `delivery_integrity` | Proved | `option` injectivity |
+| `quorum_size_gt_f` | Proved | `lia` from `n > 3f` |
+| `quorum_intersection_arithmetic` | Proved | list arithmetic |
+| `intersection_exceeds_f` | Proved | `lia` |
+| `in_list_inter` | Proved | list induction |
+| `quorum_intersection_has_correct` | Proved | finite-list cardinality |
+| `Safety.no_conflicting_ready` | Proved | witness hypotheses + quorum intersection |
+| `Safety.agreement` | Proved | delivery witnesses + `no_conflicting_ready` |
+| `Exec.no_conflicting_ready_top` | Proved | well-formed trace induction |
+| `Exec.agreement_top` | Proved | trace READY quorums |
+| `Operational.no_conflicting_ready_reachable` | Proved | reachable-state bridge |
+| `Operational.agreement_reachable` | Proved | reachable-state bridge |
+| `Liveness.validity` | Admitted | requires fair delivery/scheduling |
+| `Liveness.totality` | Admitted | requires fair delivery + amplification |
 
 ## Relationship to Rust Implementation
 
-The Coq proofs establish correctness of the **abstract protocol**. The Rust implementation is validated against the protocol by:
+The machine-checked end-to-end safety results stop at the Coq operational
+model. The Rust implementation is connected to that model by:
 
-1. **Unit tests** in `brb-core/tests/` checking each protocol rule in isolation
-2. **Adversarial simulation** in `brb-simulator/tests/` with 100+ random seeds per scenario
-3. **Structural correspondence**: the `ProcessState` struct mirrors the Coq `ProcessState` record field-for-field
+1. unit tests in `brb-core` checking each protocol rule in isolation;
+2. adversarial simulation in `brb-simulator` with many seeds per scenario; and
+3. structural correspondence between the Rust `ProcessState` and the Coq
+   `ProcessState` record.
 
-True refinement verification (proving the Rust code implements the Coq spec) would require tools like Verus or Creusot and is left as future work.
+A machine-checked refinement from Rust to the Coq transition system is not
+claimed.
